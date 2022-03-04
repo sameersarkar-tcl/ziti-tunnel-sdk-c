@@ -33,6 +33,8 @@ typedef int (*uv_poll_req_fn)(netif_handle dev, uv_loop_t *loop, uv_poll_t *tun_
 typedef int (*setup_packet_cb)(netif_handle dev, uv_loop_t *loop, packet_cb cb, void *netif);
 typedef int (*add_route_cb)(netif_handle dev, const char *dest);
 typedef int (*delete_route_cb)(netif_handle dev, const char *dest);
+typedef int (*add_local_address_cb)(netif_handle dev, const char *addr);
+typedef int (*delete_local_address_cb)(netif_handle dev, const char *addr);
 typedef int (*exclude_route_fn)(netif_handle dev, uv_loop_t *loop, const char *dest);
 
 typedef struct netif_driver_s {
@@ -45,6 +47,8 @@ typedef struct netif_driver_s {
     add_route_cb add_route;
     delete_route_cb delete_route;
     exclude_route_fn exclude_rt;
+    add_local_address_cb add_local_address;
+    delete_local_address_cb delete_local_address;
 } netif_driver_t;
 typedef netif_driver_t *netif_driver;
 

@@ -14,9 +14,13 @@
  limitations under the License.
  */
 
-// something wrong with lwip_xxxx byteorder functions
 #ifdef _WIN32
+// something wrong with lwip_xxxx byteorder functions
 #define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1
+
+#ifndef strcasecmp
+#define strcasecmp(a,b) stricmp(a,b)
+#endif
 #endif
 
 #if defined(__mips) || defined(__mips__)
@@ -65,9 +69,192 @@ tunneler_context ziti_tunneler_init(tunneler_sdk_options *opts, uv_loop_t *loop)
     ctx->loop = loop;
     memcpy(&ctx->opts, opts, sizeof(ctx->opts));
     LIST_INIT(&ctx->intercepts);
+    LIST_INIT(&ctx->client_ips);
     run_packet_loop(loop, ctx);
 
     return ctx;
+}
+
+#if _WIN32
+#define close_socket(s) closesocket((s))
+#define SOCKET_ERRNO WSAGetLastError()
+#else
+#define SOCKET int
+#define SOCKET_ERROR (-1)
+#define SOCKET_ERRNO (errno)
+#define close_socket(s) close((s))
+#endif
+
+struct rawsock_forwarder {
+    SOCKET sock;
+    uv_poll_t watcher;
+    char *ip;
+    tunneler_context tnlr;
+};
+
+static void free_rawsock_forwarder(struct rawsock_forwarder *fwd) {
+    if (fwd == NULL) return;
+    if (fwd->sock > 0) { // struct is initialized with 0, which means the protocol/address are not intercepted
+        int e = close_socket(fwd->sock);
+        if (e == SOCKET_ERROR) {
+            TNL_LOG(WARN, "failed to close raw socket for %s: err=%d", fwd->ip, SOCKET_ERRNO);
+        }
+    }
+    uv_poll_stop(&fwd->watcher);
+    free(fwd->ip);
+    free(fwd);
+}
+
+static void forward_packet(uv_poll_t* watcher, int status, int revents) {
+    struct rawsock_forwarder *fwd = watcher->data;
+    if (status != 0) {
+        TNL_LOG(ERR, "error reading from raw socket watcher %s: %d", fwd->ip, status);
+        return;
+    }
+
+    if (revents & UV_READABLE) {
+        char buf[16384]; // todo size to mtu
+        TNL_LOG(TRACE, "got readable event on raw socket!");
+        ssize_t n = recvfrom(fwd->sock, buf, sizeof(buf), 0, NULL, 0);
+        if (n < 0) {
+            TNL_LOG(ERR, "error reading from raw socket %s: err=%d", fwd->ip, SOCKET_ERRNO);
+            return;
+        }
+        // todo fix packet checksum
+        on_packet(buf, n, &fwd->tnlr->netif);
+    }
+}
+
+static struct rawsock_forwarder *create_rawsock_forwarder(tunneler_context tnlr, const char *proto, address_t *local_addr) {
+    int proto_id = get_protocol_id(proto);
+    SOCKET sock = socket(AF_INET, SOCK_RAW, proto_id);
+    if (sock == SOCKET_ERROR) {
+        TNL_LOG(ERR, "failed to create raw %s socket for %s: err=%d", proto, local_addr->str, SOCKET_ERRNO);
+        return NULL;
+    }
+
+    struct sockaddr_in ip = {
+            .sin_family = AF_INET,
+            .sin_addr.s_addr = ip_addr_get_ip4_u32(&local_addr->ip),
+            .sin_port = 0,
+    };
+    int e = bind(sock, (struct sockaddr *) &ip, sizeof(ip));
+    if (e == -1) {
+        TNL_LOG(ERR, "failed to bind raw %s socket to %e: err=%d", proto, local_addr->str, SOCKET_ERRNO);
+        close_socket(sock);
+        return NULL;
+    }
+
+    struct rawsock_forwarder *fwd = calloc(1, sizeof(struct rawsock_forwarder));
+    if (fwd == NULL) {
+        TNL_LOG(ERR, "failed to allocate rawsock_forwarder for %s", local_addr->str);
+        close_socket(sock);
+        return NULL;
+    }
+
+    fwd->sock = sock;
+    fwd->tnlr = tnlr;
+    fwd->ip = strdup(local_addr->str);
+
+    e = uv_poll_init_socket(tnlr->loop, &fwd->watcher, sock);
+    if (e != 0) {
+        TNL_LOG(ERR, "up_poll_init_socket failed: err=%d", e);
+        close_socket(sock);
+        free(fwd);
+        return NULL;
+    }
+
+    fwd->watcher.data = fwd;
+    e = uv_poll_start(&fwd->watcher, UV_READABLE, forward_packet);
+    if (e != 0) {
+        TNL_LOG(ERR, "failed to start poll watcher for %s: err=%d", local_addr->str, e);
+        close_socket(sock);
+        free(fwd);
+        return NULL;
+    }
+
+    return fwd;
+}
+
+/** create raw socket forwarders to intercept traffic for any IPs that we are spoofing.
+ * returns number of forwarders created, or -1 on error */
+int create_rawsock_forwarders(tunneler_context tnlr, const char *ip) {
+    // Adding the IP as a local address will supersede the route that sends packets to our tun interface,
+    // resulting in the kernel/OS dispatching packets that we want to intercept.
+    // Intercept packets to this IP with a raw socket while the local address is assigned.
+
+    address_t *local_addr = parse_address(ip);
+    if (local_addr == NULL) {
+        TNL_LOG(ERR, "failed to parse address %s", ip);
+        return -1;
+    }
+
+    int num_forwarders = 0;
+    intercept_ctx_t *intercept;
+    LIST_FOREACH(intercept, &tnlr->intercepts, entries) {
+        TNL_LOG(INFO, "checking if spoofed ip %s is intercepted for service[%s]", ip, intercept->service_name);
+        if (address_match(&local_addr->ip, &intercept->addresses)) {
+            TNL_LOG(INFO, "ip %s needs to be intercepted for service[%s]", ip, intercept->service_name);
+            protocol_t *proto;
+            STAILQ_FOREACH(proto, &intercept->protocols, entries) {
+                TNL_LOG(INFO, "creating raw %s socket to intercept spoofed ip %s", proto->protocol, ip);
+                if (create_rawsock_forwarder(tnlr, proto->protocol, local_addr) == NULL) {
+                    // todo clean up any forwarders that were created. attach forwarders to intercept context?
+                    return -1;
+                }
+                num_forwarders++;
+            }
+        }
+    }
+
+    return num_forwarders;
+}
+
+int ziti_tunneler_add_local_address(tunneler_context tnlr_ctx, const char *addr) {
+    TNL_LOG(DEBUG, "addr='%s'", addr);
+    struct client_ip_entry_s *entry;
+    LIST_FOREACH(entry, &tnlr_ctx->client_ips, _next) {
+        TNL_LOG(DEBUG, "comparing %s %s", addr, entry->ip);
+        if (strcmp(addr, entry->ip) == 0) {
+            TNL_LOG(DEBUG, "incrementing reference count for local address %s", addr);
+            entry->count++;
+            return 0;
+        }
+    }
+    int s = tnlr_ctx->opts.netif_driver->add_local_address(tnlr_ctx->opts.netif_driver->handle, addr);
+    if (s != 0) {
+        TNL_LOG(ERR, "add_local_address failed: e = %d", s);
+        return s;
+    }
+
+    /* the tunneler may need to intercept this ip, but packets to it won't be dispatched to the tun
+     * device because the ip is now a local address (which is necessary for spoofing).
+     * create raw sockets to sniff packets to this ip */
+    create_rawsock_forwarders(tnlr_ctx, addr);
+
+    entry = calloc(1, sizeof(struct client_ip_entry_s));
+    strncpy(entry->ip, addr, sizeof(entry->ip));
+    entry->count = 1;
+    LIST_INSERT_HEAD(&tnlr_ctx->client_ips, entry, _next);
+
+    return 0;
+}
+
+int ziti_tunneler_delete_local_address(tunneler_context tnlr_ctx, const char *addr) {
+    TNL_LOG(DEBUG, "addr='%s'", addr);
+    struct client_ip_entry_s *entry;
+    LIST_FOREACH(entry, &tnlr_ctx->client_ips, _next) {
+        TNL_LOG(DEBUG, "comparing %s %s", addr, entry->ip);
+        if (strcmp(addr, entry->ip) == 0) {
+            TNL_LOG(DEBUG, "deccrementing reference count for local address %s", addr);
+            entry->count--;
+            break;
+        }
+    }
+    if (entry != NULL && entry->count == 0) {
+        return tnlr_ctx->opts.netif_driver->delete_local_address(tnlr_ctx->opts.netif_driver->handle, addr);
+    }
+    return 0;
 }
 
 void ziti_tunneler_exclude_route(tunneler_context tnlr_ctx, const char *dst) {
@@ -165,6 +352,7 @@ void free_tunneler_io_context(tunneler_io_context *tnlr_io_ctx_p) {
 void ziti_tunneler_set_idle_timeout(struct io_ctx_s *io_context, unsigned int timeout) {
     io_context->tnlr_io->idle_timeout = timeout;
 }
+
 /**
  * called by tunneler application when a service dial has completed
  * - let the client know that we have a connection (e.g. send SYN/ACK)
@@ -194,7 +382,8 @@ void ziti_tunneler_dial_completed(struct io_ctx_s *io, bool ok) {
 }
 
 host_ctx_t *ziti_tunneler_host(tunneler_context tnlr_ctx, const void *ziti_ctx, const char *service_name, cfg_type_e cfg_type, void *config) {
-    return tnlr_ctx->opts.ziti_host((void *) ziti_ctx, tnlr_ctx->loop, service_name, cfg_type, config);
+    host_ctx_t *h = tnlr_ctx->opts.ziti_host((void *) ziti_ctx, tnlr_ctx, tnlr_ctx->loop, service_name, cfg_type, config);
+    return h;
 }
 
 intercept_ctx_t* intercept_ctx_new(tunneler_context tnlr_ctx, const char *app_id, void *app_intercept_ctx) {
@@ -207,6 +396,26 @@ intercept_ctx_t* intercept_ctx_new(tunneler_context tnlr_ctx, const char *app_id
     STAILQ_INIT(&ictx->port_ranges);
 
     return ictx;
+}
+
+int get_protocol_id(const char *protocol) {
+    if (strcasecmp(protocol, "tcp") == 0) {
+        return IPPROTO_TCP;
+    } else if (strcasecmp(protocol, "udp") == 0) {
+        return IPPROTO_UDP;
+    }
+    return -1;
+}
+
+const char *get_protocol_str(int protocol_id) {
+    switch (protocol_id) {
+        case IPPROTO_TCP:
+            return "tcp";
+        case IPPROTO_UDP:
+            return "udp";
+        default:
+            return "NUL";
+    }
 }
 
 void intercept_ctx_set_match_addr(intercept_ctx_t *intercept, intercept_match_addr_fn pred) {
@@ -390,9 +599,7 @@ void ziti_tunneler_stop_intercepting(tunneler_context tnlr_ctx, void *zi_ctx) {
         free_intercept(intercept);
     }
 
-
     tunneler_kill_active(zi_ctx);
-
 }
 
 /** called by tunneler application when data is read from a ziti connection */

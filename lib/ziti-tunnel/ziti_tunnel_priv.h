@@ -62,6 +62,12 @@ struct intercept_ctx_s {
     intercept_match_addr_fn match_addr;
 };
 
+struct client_ip_entry_s {
+    char ip[64];
+    uint16_t count;
+    LIST_ENTRY(client_ip_entry_s) _next;
+};
+
 struct excluded_route_s {
     char route[MAX_ROUTE_LEN];
     LIST_ENTRY(excluded_route_s) _next;
@@ -77,6 +83,7 @@ typedef struct tunneler_ctx_s {
     uv_timer_t   lwip_timer_req;
     LIST_HEAD(intercept_ctx_list_s, intercept_ctx_s) intercepts;
 //    STAILQ_HEAD(hosted_service_ctx_list_s, hosted_service_ctx_s) hosts;
+    LIST_HEAD(client_ips_list_s, client_ip_entry_s) client_ips;
     LIST_HEAD(exclusions, excluded_route_s) excluded_rts;
 
 } *tunneler_context;

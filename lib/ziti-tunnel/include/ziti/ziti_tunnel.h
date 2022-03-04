@@ -93,7 +93,7 @@ typedef STAILQ_HEAD(port_range_list_s, port_range_s) port_range_list_t;
 typedef void * (*ziti_sdk_dial_cb)(const void *app_intercept_ctx, io_ctx_t *io);
 typedef int (*ziti_sdk_close_cb)(void *ziti_io_ctx);
 typedef ssize_t (*ziti_sdk_write_cb)(const void *ziti_io_ctx, void *write_ctx, const void *data, size_t len);
-typedef host_ctx_t * (*ziti_sdk_host_cb)(void *ziti_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfg_type, const void *cfg);
+typedef host_ctx_t * (*ziti_sdk_host_cb)(void *ziti_ctx, tunneler_context tnlr_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfg_type, const void *cfg);
 
 /** data needed to intercept packets and dial the associated ziti service */
 typedef struct intercept_ctx_s  intercept_ctx_t;
@@ -101,6 +101,10 @@ typedef bool (*intercept_match_addr_fn)(ip_addr_t *addr, void *app_intercept_ctx
 
 extern intercept_ctx_t* intercept_ctx_new(tunneler_context tnlt_ctx, const char *app_id, void *app_intercept_ctx);
 extern void intercept_ctx_set_match_addr(intercept_ctx_t *intercept, intercept_match_addr_fn pred);
+
+extern int get_protocol_id(const char *protocol);
+extern const char *get_protocol_str(int protocol_id);
+
 extern void intercept_ctx_add_protocol(intercept_ctx_t *ctx, const char *protocol);
 /** parse address string as hostname|ip|cidr and add result to list of intercepted addresses */
 extern address_t *intercept_ctx_add_address(intercept_ctx_t *i_ctx, const char *address);
@@ -144,6 +148,9 @@ extern bool port_match(int port, const port_range_list_t *port_ranges);
 extern tunneler_context ziti_tunneler_init(tunneler_sdk_options *opts, uv_loop_t *loop);
 
 extern void ziti_tunneler_exclude_route(tunneler_context tnlr_ctx, const char* dst);
+
+extern int ziti_tunneler_add_local_address(tunneler_context tnlr_ctx, const char *addr);
+extern int ziti_tunneler_delete_local_address(tunneler_context tnlr_ctx, const char *addr);
 
 /** called by tunneler application when it is done with a tunneler_context.
  * calls `stop_intercepting` for each intercepted service. */

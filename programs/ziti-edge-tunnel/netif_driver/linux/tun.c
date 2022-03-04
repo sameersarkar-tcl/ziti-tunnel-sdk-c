@@ -309,6 +309,19 @@ static int tun_exclude_rt(netif_handle dev, uv_loop_t *l, const char *addr) {
     return run_command("ip route replace %s %s %.*s", addr, type, gw_len, gw);
 }
 
+static int loopback_add_address(netif_handle tun, const char *addr) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "ip address add %s/32 dev lo valid_lft forever preferred_lft forever", addr);
+    int s = system(cmd);
+    return s;
+}
+
+static int loopback_delete_address(netif_handle tun, const char *addr) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "ip address del %s/32 dev lo", addr);
+    return -1;
+}
+
 netif_driver tun_open(uv_loop_t *loop, uint32_t tun_ip, uint32_t dns_ip, const char *dns_block, char *error, size_t error_len) {
     if (error != NULL) {
         memset(error, 0, error_len * sizeof(char));
@@ -359,6 +372,8 @@ netif_driver tun_open(uv_loop_t *loop, uint32_t tun_ip, uint32_t dns_ip, const c
     driver->uv_poll_init = tun_uv_poll_init;
     driver->add_route    = tun_add_route;
     driver->delete_route = tun_delete_route;
+    driver->add_local_address    = loopback_add_address;
+    driver->delete_local_address = loopback_delete_address;
     driver->close        = tun_close;
     driver->exclude_rt   = tun_exclude_rt;
 
