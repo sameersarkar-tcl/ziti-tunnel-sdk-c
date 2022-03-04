@@ -95,6 +95,9 @@ typedef struct intercept_ctx_s {
     LIST_ENTRY(intercept_ctx_s) entries;
 } intercept_ctx_t;
 
+extern int get_protocol_id(const char *protocol);
+extern const char *get_protocol_str(int protocol_id);
+
 extern void intercept_ctx_add_protocol(intercept_ctx_t *ctx, const char *protocol);
 /** parse address string as hostname|ip|cidr and add result to list of intercepted addresses */
 extern address_t *intercept_ctx_add_address(tunneler_context tnlr_ctx, intercept_ctx_t *i_ctx, const char *address);
@@ -115,6 +118,7 @@ SLIST_HEAD(io_ctx_list_s, io_ctx_list_entry_s);
 typedef struct hosted_service_ctx_s {
     char *       service_name;
     const void * ziti_ctx;
+    tunneler_context tnlr_ctx;
     uv_loop_t *  loop;
     cfg_type_e   cfg_type;
     const void * cfg;
@@ -149,7 +153,7 @@ typedef struct tunneled_service_s {
 typedef void * (*ziti_sdk_dial_cb)(const intercept_ctx_t *intercept_ctx, struct io_ctx_s *io);
 typedef int (*ziti_sdk_close_cb)(void *ziti_io_ctx);
 typedef ssize_t (*ziti_sdk_write_cb)(const void *ziti_io_ctx, void *write_ctx, const void *data, size_t len);
-typedef host_ctx_t * (*ziti_sdk_host_cb)(void *ziti_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfg_type, const void *cfg);
+typedef host_ctx_t * (*ziti_sdk_host_cb)(void *ziti_ctx, tunneler_context tnlr_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfg_type, const void *cfg);
 
 typedef struct tunneler_sdk_options_s {
     netif_driver   netif_driver;
@@ -192,6 +196,9 @@ extern bool address_match(const ip_addr_t *addr, const address_list_t *addresses
 extern bool port_match(int port, const port_range_list_t *port_ranges);
 
 extern tunneler_context ziti_tunneler_init(tunneler_sdk_options *opts, uv_loop_t *loop);
+
+extern int ziti_tunneler_add_local_address(tunneler_context tnlr_ctx, const char *addr);
+extern int ziti_tunneler_delete_local_address(tunneler_context tnlr_ctx, const char *addr);
 
 /** called by tunneler application when it is done with a tunneler_context.
  * calls `stop_intercepting` for each intercepted service. */

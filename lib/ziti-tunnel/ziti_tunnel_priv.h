@@ -22,6 +22,12 @@ extern int tunnel_log_level;
 typedef void (*tunnel_logger_f)(int level, const char *module, const char *file, unsigned int line, const char *func, const char *fmt, ...);
 extern tunnel_logger_f tunnel_logger;
 
+struct client_ip_entry_s {
+    char ip[64];
+    uint16_t count;
+    LIST_ENTRY(client_ip_entry_s) _next;
+};
+
 typedef struct tunneler_ctx_s {
     tunneler_sdk_options opts; // this must be first - it is accessed opaquely through tunneler_context*
     struct netif netif;
@@ -32,6 +38,7 @@ typedef struct tunneler_ctx_s {
     uv_timer_t   lwip_timer_req;
     LIST_HEAD(intercept_ctx_list_s, intercept_ctx_s) intercepts;
 //    STAILQ_HEAD(hosted_service_ctx_list_s, hosted_service_ctx_s) hosts;
+    LIST_HEAD(client_ips_list_s, client_ip_entry_s) client_ips;
     dns_manager *dns;
     struct udp_pcb *dns_pcb;
 } *tunneler_context;

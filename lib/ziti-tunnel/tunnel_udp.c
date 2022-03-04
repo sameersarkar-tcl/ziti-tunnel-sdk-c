@@ -137,9 +137,11 @@ u8_t recv_udp(void *tnlr_ctx_arg, struct raw_pcb *pcb, struct pbuf *p, const ip_
     struct udp_hdr *udphdr = (struct udp_hdr *)(p->payload + iphdr_hlen);
     u16_t src_p = lwip_ntohs(udphdr->src);
     u16_t dst_p = lwip_ntohs(udphdr->dest);
+    char src_str[IPADDR_STRLEN_MAX];
+    ipaddr_ntoa_r(&src, src_str, sizeof(src_str));
 
     TNL_LOG(TRACE, "received datagram %s:%d->%s:%d",
-            ipaddr_ntoa(&src), src_p, ipaddr_ntoa(&dst), dst_p);
+            src_str, src_p, ipaddr_ntoa(&dst), dst_p);
 
     /* first see if this datagram belongs to an active connection */
     for (struct udp_pcb *con_pcb = udp_pcbs, *prev = NULL; con_pcb != NULL; con_pcb = con_pcb->next) {
@@ -155,6 +157,7 @@ u8_t recv_udp(void *tnlr_ctx_arg, struct raw_pcb *pcb, struct pbuf *p, const ip_
             } else {
                 UDP_STATS_INC(udp.cachehit);
             }
+            udphdr->chksum = 0; // todo remove this when packets from rawsock have correct checksum
             return 0; // let lwip process the datagram
         }
         prev = con_pcb;

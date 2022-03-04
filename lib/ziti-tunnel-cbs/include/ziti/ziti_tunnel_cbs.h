@@ -65,6 +65,7 @@ struct hosted_io_ctx_s {
     struct hosted_service_ctx_s *service;
     ziti_connection client;
     char server_dial_str[64];
+    char *client_ip;
     int server_proto_id;
     union {
         uv_tcp_t tcp;
@@ -93,7 +94,7 @@ ssize_t ziti_sdk_c_write(const void *ziti_io_ctx, void *write_ctx, const void *d
 int ziti_sdk_c_close(void *io_ctx);
 int ziti_sdk_c_close_write(void *io_ctx);
 
-host_ctx_t *ziti_sdk_c_host(void *ziti_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfgtype, const void *cfg);
+host_ctx_t *ziti_sdk_c_host(void *ziti_ctx, tunneler_context tnlr_ctx, uv_loop_t *loop, const char *service_name, cfg_type_e cfgtype, const void *cfg);
 
 /** passed to ziti-sdk via ziti_options.service_cb */
 tunneled_service_t *ziti_sdk_c_on_service(ziti_context ziti_ctx, ziti_service *service, int status, void *tnlr_ctx);
