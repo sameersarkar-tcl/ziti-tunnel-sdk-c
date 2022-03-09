@@ -152,7 +152,7 @@ void chunked_add_nrpt_rules(uv_loop_t *ziti_loop, hostname_list_t *hostnames, ch
 
     ZITI_LOG(TRACE, "Adding %d domains using NRPT script. Total script size: %zd", domains_size, copied);
 
-    char cmd[MAX_POWERSHELL_COMMAND_LEN];
+    char cmd[MAX_POWERSHELL_COMMAND_LEN] = {0};
     buf_len = snprintf(cmd, sizeof(cmd),"powershell -Command \"%s\"", script);
     if (!is_buffer_available(buf_len, MAX_POWERSHELL_COMMAND_LEN, cmd)) {
         return;
@@ -258,7 +258,7 @@ void chunked_remove_nrpt_rules(uv_loop_t *ziti_loop, hostname_list_t *hostnames)
 
     ZITI_LOG(TRACE, "Removing %d domains using NRPT script. total script size: %zd", domains_size, copied);
 
-    char cmd[MAX_POWERSHELL_COMMAND_LEN];
+    char cmd[MAX_POWERSHELL_COMMAND_LEN] = {0};
     buf_len = snprintf(cmd, sizeof(cmd),"powershell -Command \"%s\"", script);
     if (!is_buffer_available(buf_len, MAX_POWERSHELL_COMMAND_LEN, script)) {
         return;

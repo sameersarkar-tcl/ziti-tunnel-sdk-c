@@ -180,6 +180,13 @@ extern void ziti_tunnel_set_log_level(int lvl);
 typedef void (*ziti_tunnel_async_fn)(uv_loop_t *loop, void *ctx);
 extern void ziti_tunnel_async_send(tunneler_context tctx, ziti_tunnel_async_fn f, void *arg);
 
+typedef void (*scripts_work_fn)(uv_loop_t *loop, void *ctx);
+typedef struct scripts_work_call_s {
+    scripts_work_fn f;
+    void * arg;
+} scripts_work_call_t;
+extern void ziti_tunnel_work_send(scripts_work_fn f, void *arg);
+
 #ifdef __cplusplus
 }
 #endif

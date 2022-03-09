@@ -615,6 +615,28 @@ void ziti_tunnel_async_send(tunneler_context tctx, ziti_tunnel_async_fn f, void 
     uv_async_send(async);
 }
 
+static void long_running_scripts_complete(uv_work_t * wr, int status) {
+    TNL_LOG(TRACE, "Long running script execution ended");
+}
+
+static void long_running_scripts(uv_work_t *wr) {
+    scripts_work_call_t *call = wr->data;
+    call->f(wr->loop, call->arg);
+    TNL_LOG(TRACE, "Long running script execution started");
+}
+
+void ziti_tunnel_work_send(scripts_work_fn f, void *arg) {
+    uv_loop_t *loop = uv_default_loop();
+
+    scripts_work_call_t *call = calloc(1, sizeof(scripts_work_call_t));
+    call->f = f;
+    call->arg = arg;
+
+    uv_work_t *scripts_worker = calloc(1, sizeof(uv_work_t));
+    scripts_worker->data = call;
+    uv_queue_work(loop, scripts_worker, long_running_scripts, long_running_scripts_complete);
+}
+
 #define _str(x) #x
 #define str(x) _str(x)
 const char* ziti_tunneler_version() {
