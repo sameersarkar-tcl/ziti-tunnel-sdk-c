@@ -615,18 +615,26 @@ void ziti_tunnel_async_send(tunneler_context tctx, ziti_tunnel_async_fn f, void 
     uv_async_send(async);
 }
 
-static void long_running_scripts_complete(uv_work_t * wr, int status) {
-    TNL_LOG(TRACE, "Long running script execution ended");
+static void long_running_scripts_complete(uv_work_t *work_req, int status) {
+    TNL_LOG(TRACE, "Long running script execution ended with status %d", status);
+    free(work_req);
 }
 
-static void long_running_scripts(uv_work_t *wr) {
-    scripts_work_call_t *call = wr->data;
-    call->f(wr->loop, call->arg);
+static void long_running_scripts(uv_work_t *work_req) {
     TNL_LOG(TRACE, "Long running script execution started");
+    uv_loop_t *loop = uv_default_loop();
+    scripts_work_call_t *call = work_req->data;
+    call->f(loop, call->arg);
 }
 
-void ziti_tunnel_work_send(scripts_work_fn f, void *arg) {
-    uv_loop_t *loop = uv_default_loop();
+void ziti_tunnel_work_send(tunneler_context tctx, scripts_work_fn f, void *arg) {
+    uv_loop_t *loop;
+    if (tctx) {
+        loop = tctx->loop;
+    } else {
+        TNL_LOG(ERROR, "context loop is missing, exiting work queue execution");
+        return;
+    }
 
     scripts_work_call_t *call = calloc(1, sizeof(scripts_work_call_t));
     call->f = f;

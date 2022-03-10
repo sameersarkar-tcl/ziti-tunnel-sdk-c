@@ -185,7 +185,7 @@ typedef struct scripts_work_call_s {
     scripts_work_fn f;
     void * arg;
 } scripts_work_call_t;
-extern void ziti_tunnel_work_send(scripts_work_fn f, void *arg);
+extern void ziti_tunnel_work_send(tunneler_context tunneler, scripts_work_fn f, void *arg);
 
 #ifdef __cplusplus
 }
