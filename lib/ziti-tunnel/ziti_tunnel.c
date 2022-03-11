@@ -632,7 +632,7 @@ void ziti_tunnel_work_send(tunneler_context tctx, scripts_work_fn f, void *arg) 
     if (tctx) {
         loop = tctx->loop;
     } else {
-        TNL_LOG(ERROR, "context loop is missing, exiting work queue execution");
+        TNL_LOG(ERR, "context loop is missing, exiting work queue execution");
         return;
     }
 
