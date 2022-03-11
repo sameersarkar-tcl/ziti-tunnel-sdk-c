@@ -616,15 +616,15 @@ void ziti_tunnel_async_send(tunneler_context tctx, ziti_tunnel_async_fn f, void 
 }
 
 static void long_running_scripts_complete(uv_work_t *work_req, int status) {
+    scripts_work_call_t *call = work_req->data;
+    call->f(work_req->loop, call->arg);
     TNL_LOG(TRACE, "Long running script execution ended with status %d", status);
     free(work_req);
 }
 
 static void long_running_scripts(uv_work_t *work_req) {
     TNL_LOG(TRACE, "Long running script execution started");
-    uv_loop_t *loop = uv_default_loop();
-    scripts_work_call_t *call = work_req->data;
-    call->f(loop, call->arg);
+
 }
 
 void ziti_tunnel_work_send(tunneler_context tctx, scripts_work_fn f, void *arg) {
