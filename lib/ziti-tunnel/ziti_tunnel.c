@@ -36,6 +36,7 @@ limitations under the License.
 #include "tunnel_tcp.h"
 #include "tunnel_udp.h"
 #include "uv.h"
+#include "loopback_addr.h"
 
 #include <string.h>
 
@@ -75,6 +76,7 @@ tunneler_context ziti_tunneler_init(tunneler_sdk_options *opts, uv_loop_t *loop)
     memcpy(&ctx->opts, opts, sizeof(ctx->opts));
     LIST_INIT(&ctx->intercepts);
     LIST_INIT(&ctx->client_ips);
+    loopback_init();
     run_packet_loop(loop, ctx);
 
     return ctx;
@@ -226,7 +228,7 @@ int ziti_tunneler_add_local_address(tunneler_context tnlr_ctx, const char *addr)
             return 0;
         }
     }
-    int s = tnlr_ctx->opts.netif_driver->add_local_address(tnlr_ctx->opts.netif_driver->handle, addr);
+    int s = loopback_add_address(addr);
     if (s != 0) {
         TNL_LOG(ERR, "add_local_address failed: e = %d", s);
         return s;
@@ -257,7 +259,7 @@ int ziti_tunneler_delete_local_address(tunneler_context tnlr_ctx, const char *ad
         }
     }
     if (entry != NULL && entry->count == 0) {
-        return tnlr_ctx->opts.netif_driver->delete_local_address(tnlr_ctx->opts.netif_driver->handle, addr);
+        return loopback_delete_address(addr);
     }
     return 0;
 }
