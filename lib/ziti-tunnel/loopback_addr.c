@@ -166,7 +166,7 @@ void refresh_local_addresses(uv_timer_t *timer) {
     }
 }
 
-#elifdef __linux__
+#elif __linux__
 #include <stdio.h>
 #include <stdlib.h>
 
