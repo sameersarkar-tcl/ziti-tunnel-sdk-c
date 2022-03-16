@@ -48,7 +48,6 @@ jobs:
         run: cmake --build ${{runner.workspace}}/build --target bundle --verbose
 
       - uses: actions/upload-artifact@v2
-        if: matrix.cmake_target == 'bundle'
         with:
           name: ${{ runner.os }}-${{ matrix.arch }}
           path: ${{ runner.workspace }}/build/bundle/*.zip
