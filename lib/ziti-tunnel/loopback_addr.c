@@ -4,7 +4,6 @@
 #define LOCAL_ADDRESS_REFRESH (LOCAL_ADDRESS_LIFETIME - (LOCAL_ADDRESS_LIFETIME/10))
 #include "ziti_tunnel_priv.h"
 #include "ziti/ziti_model.h"
-#include "ziti/ziti_log.h"
 #ifdef _WIN32
 #include <windows.h>
 #include <netioapi.h>
@@ -18,15 +17,15 @@ struct addr_add_ctx_s {
 
 // called when IP addresses are changed on the local system
 static void CALLBACK on_address_change(PVOID callerContext, PMIB_UNICASTIPADDRESS_ROW row, MIB_NOTIFICATION_TYPE notificationType) {
-    ZITI_LOG(VERBOSE, "notificationType %d", notificationType);
+    TNL_LOG(VERBOSE, "notificationType %d", notificationType);
 
     if (row == NULL) {
-        ZITI_LOG(VERBOSE, "null row");
+        TNL_LOG(VERBOSE, "null row");
         return;
     }
 
     if (callerContext == NULL) {
-        ZITI_LOG(VERBOSE, "null caller context");
+        TNL_LOG(VERBOSE, "null caller context");
         return;
     }
     struct addr_add_ctx_s *ctx = callerContext;
@@ -35,11 +34,11 @@ static void CALLBACK on_address_change(PVOID callerContext, PMIB_UNICASTIPADDRES
         // check that address matches the one that was added
         if (row->Address.si_family == AF_INET &&
             row->Address.Ipv4.sin_addr.S_un.S_addr == ctx->addr.Ipv4.sin_addr.S_un.S_addr) {
-            ZITI_LOG(DEBUG, "added address matches");
+            TNL_LOG(DEBUG, "added address matches");
             SetEvent(ctx->complete_event);
         }
         if (row->Address.si_family == AF_INET6) {
-            ZITI_LOG(VERBOSE, "ipv6 not handled");
+            TNL_LOG(VERBOSE, "ipv6 not handled");
         }
     }
 }
@@ -63,7 +62,7 @@ int loopback_add_address(const char *addr) {
 
     unsigned long status = GetIpInterfaceTable( AF_INET, &ip_table );
     if (status != NO_ERROR) {
-        ZITI_LOG(ERROR, "unable to find loopback device: GetIpInterfaceTable returned error %ld", status);
+        TNL_LOG(ERR, "unable to find loopback device: GetIpInterfaceTable returned error %ld", status);
         return 1;
     }
     loopback_luid = ip_table->Table[0].InterfaceLuid;
@@ -72,7 +71,7 @@ int loopback_add_address(const char *addr) {
 
     address_t *a = parse_address(addr, NULL);
     if (a == NULL) {
-        ZITI_LOG(ERROR, "failed to parse address %s", addr);
+        TNL_LOG(ERR, "failed to parse address %s", addr);
         return 1;
     }
 
@@ -92,7 +91,7 @@ int loopback_add_address(const char *addr) {
         addr_row->Address.Ipv6.sin6_addr.u.Word = a->ip.u_addr.ip6.addr;
 #endif
     } else {
-        ZITI_LOG(ERROR, "unexpected IP address type %d", IP_GET_TYPE(&a->ip));
+        TNL_LOG(ERR, "unexpected IP address type %d", IP_GET_TYPE(&a->ip));
         free(a);
         free(addr_row);
         return 1;
@@ -102,7 +101,7 @@ int loopback_add_address(const char *addr) {
     struct addr_add_ctx_s *ctx = calloc(1, sizeof(struct addr_add_ctx_s));
     ctx->complete_event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (ctx->complete_event == NULL) {
-        ZITI_LOG(ERROR, "CreateEvent failed: %ld", GetLastError());
+        TNL_LOG(ERR, "CreateEvent failed: %ld", GetLastError());
         free(ctx);
         return 1;
     }
@@ -111,26 +110,26 @@ int loopback_add_address(const char *addr) {
     NotifyUnicastIpAddressChange(AF_INET, &on_address_change, ctx, FALSE, &ctx->notify_event);
 
     status = CreateUnicastIpAddressEntry(addr_row);
-    ZITI_LOG(INFO, "CreateUnicastIpAddress e=%ld", status);
+    TNL_LOG(INFO, "CreateUnicastIpAddress e=%ld", status);
     if (status != NO_ERROR && status != ERROR_OBJECT_ALREADY_EXISTS) {
-        ZITI_LOG(ERROR, "failed to create local address %s: %ld", addr, status);
+        TNL_LOG(ERR, "failed to create local address %s: %ld", addr, status);
         CancelMibChangeNotify2(ctx->notify_event);
         free(ctx);
         return 1;
     }
 
     // wait for address to be added.
-    ZITI_LOG(DEBUG, "waiting for ip add to complete");
+    TNL_LOG(DEBUG, "waiting for ip add to complete");
     status = WaitForSingleObject(ctx->complete_event, 3000);
-    ZITI_LOG(DEBUG, "wait status=%ld", status);
+    TNL_LOG(DEBUG, "wait status=%ld", status);
     CancelMibChangeNotify2(ctx->notify_event);
     CloseHandle(ctx->complete_event);
     free(ctx);
 
     if (status == WAIT_OBJECT_0) {
-        ZITI_LOG(DEBUG, "successfully added %s to loopback interface", addr);
+        TNL_LOG(DEBUG, "successfully added %s to loopback interface", addr);
     } else {
-        ZITI_LOG(ERROR, "wait for address %s failed: %ld", addr, status);
+        TNL_LOG(ERR, "wait for address %s failed: %ld", addr, status);
         return 1;
     }
 
@@ -139,17 +138,17 @@ int loopback_add_address(const char *addr) {
 }
 
 int loopback_delete_address(const char *addr) {
-    ZITI_LOG(DEBUG, "removing local address %s", addr);
+    TNL_LOG(DEBUG, "removing local address %s", addr);
     PMIB_UNICASTIPADDRESS_ROW addr_row = model_map_remove(&local_addresses, addr);
     if (addr_row == NULL) {
-        ZITI_LOG(VERBOSE, "no map entry existed for local address %s", addr);
+        TNL_LOG(VERBOSE, "no map entry existed for local address %s", addr);
         return 0;
     }
 
     unsigned long s = DeleteUnicastIpAddressEntry(addr_row);
     free(addr_row);
     if (s != NO_ERROR) {
-        ZITI_LOG(ERROR, "failed to remove local address %s: %ld", addr, s);
+        TNL_LOG(ERR, "failed to remove local address %s: %ld", addr, s);
         return 1;
     }
 
@@ -157,14 +156,14 @@ int loopback_delete_address(const char *addr) {
 }
 
 void refresh_local_addresses(uv_timer_t *timer) {
-    ZITI_LOG(DEBUG, "refreshing local addresses");
+    TNL_LOG(DEBUG, "refreshing local addresses");
     const char *addr;
     MIB_UNICASTIPADDRESS_ROW *addr_row;
     MODEL_MAP_FOREACH(addr, addr_row, &local_addresses) {
-        ZITI_LOG(DEBUG, "refreshing local address %s", addr);
+        TNL_LOG(DEBUG, "refreshing local address %s", addr);
         unsigned long s = SetUnicastIpAddressEntry(addr_row);
         if (s != NO_ERROR) {
-            ZITI_LOG(ERROR, "failed to reset local address %s: %ld", addr, s);
+            TNL_LOG(ERR, "failed to reset local address %s: %ld", addr, s);
         }
     }
 }
