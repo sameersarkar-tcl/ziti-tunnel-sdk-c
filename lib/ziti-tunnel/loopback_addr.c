@@ -2,9 +2,12 @@
 
 #define LOCAL_ADDRESS_LIFETIME 30
 #define LOCAL_ADDRESS_REFRESH (LOCAL_ADDRESS_LIFETIME - (LOCAL_ADDRESS_LIFETIME/10))
-
+#include "ziti_tunnel_priv.h"
+#include "ziti/ziti_model.h"
+#include "ziti/ziti_log.h"
 #ifdef _WIN32
 #include <windows.h>
+#include <netioapi.h>
 #include "uv.h"
 
 struct addr_add_ctx_s {
@@ -42,17 +45,18 @@ static void CALLBACK on_address_change(PVOID callerContext, PMIB_UNICASTIPADDRES
 }
 
 static void refresh_local_addresses(uv_timer_t *timer);
-static uv_timer local_address_timer;
+static uv_timer_t local_address_timer;
+static model_map local_addresses;
 
 void loopback_init(void) {
     uv_timer_init(uv_default_loop(), &local_address_timer);
-    local_address_timer.data = tun;
+    memset(&local_addresses, 0, sizeof(local_addresses));
     uv_unref((uv_handle_t *) &local_address_timer);
     uv_timer_start(&local_address_timer, refresh_local_addresses,
                    LOCAL_ADDRESS_REFRESH*1000, LOCAL_ADDRESS_REFRESH*1000);
 }
 
-int loopback_add_address(netif_handle tun, const char *addr) {
+int loopback_add_address(const char *addr) {
     PMIB_IPINTERFACE_TABLE ip_table = NULL;
     PMIB_UNICASTIPADDRESS_ROW addr_row = NULL;
     NET_LUID loopback_luid;
@@ -66,7 +70,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     FreeMibTable(ip_table);
     ip_table = NULL;
 
-    address_t *a = parse_address(addr);
+    address_t *a = parse_address(addr, NULL);
     if (a == NULL) {
         ZITI_LOG(ERROR, "failed to parse address %s", addr);
         return 1;
@@ -98,7 +102,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     struct addr_add_ctx_s *ctx = calloc(1, sizeof(struct addr_add_ctx_s));
     ctx->complete_event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (ctx->complete_event == NULL) {
-        ZITI_LOG(ERROR, "CreateEvent failed: %s", GetLastError());
+        ZITI_LOG(ERROR, "CreateEvent failed: %ld", GetLastError());
         free(ctx);
         return 1;
     }
@@ -107,9 +111,9 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     NotifyUnicastIpAddressChange(AF_INET, &on_address_change, ctx, FALSE, &ctx->notify_event);
 
     status = CreateUnicastIpAddressEntry(addr_row);
-    ZITI_LOG(INFO, "CreateUnicastIpAddress e=%d", status);
+    ZITI_LOG(INFO, "CreateUnicastIpAddress e=%ld", status);
     if (status != NO_ERROR && status != ERROR_OBJECT_ALREADY_EXISTS) {
-        ZITI_LOG(ERROR, "failed to create local address %s: %d", addr, status);
+        ZITI_LOG(ERROR, "failed to create local address %s: %ld", addr, status);
         CancelMibChangeNotify2(ctx->notify_event);
         free(ctx);
         return 1;
@@ -118,7 +122,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     // wait for address to be added.
     ZITI_LOG(DEBUG, "waiting for ip add to complete");
     status = WaitForSingleObject(ctx->complete_event, 3000);
-    ZITI_LOG(DEBUG, "wait status=%d", status);
+    ZITI_LOG(DEBUG, "wait status=%ld", status);
     CancelMibChangeNotify2(ctx->notify_event);
     CloseHandle(ctx->complete_event);
     free(ctx);
@@ -126,17 +130,17 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     if (status == WAIT_OBJECT_0) {
         ZITI_LOG(DEBUG, "successfully added %s to loopback interface", addr);
     } else {
-        ZITI_LOG(ERROR, "wait for address %s failed: %d", addr, status);
+        ZITI_LOG(ERROR, "wait for address %s failed: %ld", addr, status);
         return 1;
     }
 
-    model_map_set(&tun->local_addresses, addr, addr_row);
+    model_map_set(&local_addresses, addr, addr_row);
     return 0;
 }
 
-int loopback_del_address(netif_handle tun, const char *addr) {
+int loopback_delete_address(const char *addr) {
     ZITI_LOG(DEBUG, "removing local address %s", addr);
-    PMIB_UNICASTIPADDRESS_ROW addr_row = model_map_remove(&tun->local_addresses, addr);
+    PMIB_UNICASTIPADDRESS_ROW addr_row = model_map_remove(&local_addresses, addr);
     if (addr_row == NULL) {
         ZITI_LOG(VERBOSE, "no map entry existed for local address %s", addr);
         return 0;
@@ -145,7 +149,7 @@ int loopback_del_address(netif_handle tun, const char *addr) {
     unsigned long s = DeleteUnicastIpAddressEntry(addr_row);
     free(addr_row);
     if (s != NO_ERROR) {
-        ZITI_LOG(ERROR, "failed to remove local address %s: %d", addr, s);
+        ZITI_LOG(ERROR, "failed to remove local address %s: %ld", addr, s);
         return 1;
     }
 
@@ -154,14 +158,13 @@ int loopback_del_address(netif_handle tun, const char *addr) {
 
 void refresh_local_addresses(uv_timer_t *timer) {
     ZITI_LOG(DEBUG, "refreshing local addresses");
-    struct netif_handle_s *tun = timer->data;
     const char *addr;
     MIB_UNICASTIPADDRESS_ROW *addr_row;
-    MODEL_MAP_FOREACH(addr, addr_row, &tun->local_addresses) {
+    MODEL_MAP_FOREACH(addr, addr_row, &local_addresses) {
         ZITI_LOG(DEBUG, "refreshing local address %s", addr);
         unsigned long s = SetUnicastIpAddressEntry(addr_row);
         if (s != NO_ERROR) {
-            ZITI_LOG(ERROR, "failed to reset local address %s: %d", addr, s);
+            ZITI_LOG(ERROR, "failed to reset local address %s: %ld", addr, s);
         }
     }
 }
