@@ -586,6 +586,10 @@ static void on_hosted_client_connect(ziti_connection serv, ziti_connection clt, 
             uv_udp_init(service_ctx->loop, &io_ctx->server.udp);
             io_ctx->server.udp.data = io_ctx;
             if (source_ai != NULL) {
+                struct sockaddr *sa = source_ai->ai_addr;
+                char ip_str[32] = {0};
+                inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr), ip_str, sizeof(ip_str));
+                ZITI_LOG(INFO, "calling uv_udp_bind(%s)", ip_str);
                 uv_err = uv_udp_bind(&io_ctx->server.udp, source_ai->ai_addr, 0);
                 if (uv_err != 0) {
                     ZITI_LOG(ERROR, "hosted_service[%s] client[%s]: uv_udp_bind failed: %s",
@@ -598,6 +602,9 @@ static void on_hosted_client_connect(ziti_connection serv, ziti_connection clt, 
             if (uv_err != 0) {
                 ZITI_LOG(ERROR, "hosted_service[%s], client[%s]: uv_udp_connect failed: %s",
                          service_ctx->service_name, client_identity, uv_err_name(uv_err));
+#if _WIN32
+                ZITI_LOG(ERROR, "WSAGetLastError '%d'", WSAGetLastError());
+#endif
                 err = true;
                 goto done;
             }

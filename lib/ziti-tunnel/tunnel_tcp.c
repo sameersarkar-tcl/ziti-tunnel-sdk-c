@@ -347,6 +347,7 @@ u8_t recv_tcp(void *tnlr_ctx_arg, struct raw_pcb *pcb, struct pbuf *p, const ip_
     /* we know this is a SYN segment for an intercepted address, and we will process it */
     ziti_sdk_dial_cb zdial = tnlr_ctx->opts.ziti_dial;
     pbuf_remove_header(p, iphdr_hlen);
+    // todo inspect intercept_ctx for source_ip and set src accordingly
     struct tcp_pcb *npcb = new_tcp_pcb(src, dst, tcphdr, p);
     if (npcb == NULL) {
         TNL_LOG(ERR, "failed to allocate tcp pcb - TCP connection limit is %d", MEMP_NUM_TCP_PCB);

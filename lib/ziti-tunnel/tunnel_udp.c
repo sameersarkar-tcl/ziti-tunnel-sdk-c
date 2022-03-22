@@ -181,6 +181,7 @@ u8_t recv_udp(void *tnlr_ctx_arg, struct raw_pcb *pcb, struct pbuf *p, const ip_
     }
     ip_addr_set_ipaddr(&npcb->local_ip, &dst);
     npcb->local_port = dst_p;
+    // todo inspect intercept_ctx for source_ip and set src accordingly?
     err_t err = udp_connect(npcb, &src, src_p);
     if (err != ERR_OK) {
         TNL_LOG(ERR, "failed to udp_connect %s:%d: err: %d", ipaddr_ntoa(&src), src_p, err);

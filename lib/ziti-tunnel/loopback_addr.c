@@ -48,6 +48,16 @@ static uv_timer_t local_address_timer;
 static model_map local_addresses;
 
 void loopback_init(void) {
+    PMIB_IF_TABLE2 if_table;
+    NETIO_STATUS e = GetIfTable2(&if_table);
+    if (e != NO_ERROR) {
+        TNL_LOG(ERR, "GetIfTable2 failed: %d", e);
+        return;
+    }
+    for (int i = 0; i < if_table->NumEntries; i++) {
+        char alias_str[16];
+        TNL_LOG(INFO, "if %s id %d", wcstombs(alias_str, if_table->Table->Alias, sizeof(alias_str)));
+    }
     uv_timer_init(uv_default_loop(), &local_address_timer);
     memset(&local_addresses, 0, sizeof(local_addresses));
     uv_unref((uv_handle_t *) &local_address_timer);
@@ -119,7 +129,7 @@ int loopback_add_address(const char *addr) {
     }
 
     // wait for address to be added.
-    TNL_LOG(DEBUG, "waiting for ip add to complete");
+    TNL_LOG(INFO, "waiting for ip add to complete");
     status = WaitForSingleObject(ctx->complete_event, 3000);
     TNL_LOG(DEBUG, "wait status=%ld", status);
     CancelMibChangeNotify2(ctx->notify_event);
@@ -127,7 +137,7 @@ int loopback_add_address(const char *addr) {
     free(ctx);
 
     if (status == WAIT_OBJECT_0) {
-        TNL_LOG(DEBUG, "successfully added %s to loopback interface", addr);
+        TNL_LOG(INFO, "successfully added %s to loopback interface", addr);
     } else {
         TNL_LOG(ERR, "wait for address %s failed: %ld", addr, status);
         return 1;
@@ -138,7 +148,7 @@ int loopback_add_address(const char *addr) {
 }
 
 int loopback_delete_address(const char *addr) {
-    TNL_LOG(DEBUG, "removing local address %s", addr);
+    TNL_LOG(INFO, "removing local address %s", addr);
     PMIB_UNICASTIPADDRESS_ROW addr_row = model_map_remove(&local_addresses, addr);
     if (addr_row == NULL) {
         TNL_LOG(VERBOSE, "no map entry existed for local address %s", addr);
@@ -156,11 +166,11 @@ int loopback_delete_address(const char *addr) {
 }
 
 void refresh_local_addresses(uv_timer_t *timer) {
-    TNL_LOG(DEBUG, "refreshing local addresses");
+    TNL_LOG(INFO, "refreshing local addresses");
     const char *addr;
     MIB_UNICASTIPADDRESS_ROW *addr_row;
     MODEL_MAP_FOREACH(addr, addr_row, &local_addresses) {
-        TNL_LOG(DEBUG, "refreshing local address %s", addr);
+        TNL_LOG(INFO, "refreshing local address %s", addr);
         unsigned long s = SetUnicastIpAddressEntry(addr_row);
         if (s != NO_ERROR) {
             TNL_LOG(ERR, "failed to reset local address %s: %ld", addr, s);
