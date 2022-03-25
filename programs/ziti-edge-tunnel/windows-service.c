@@ -464,6 +464,7 @@ DWORD LphandlerFunctionEx(
 
             // stops the running tunnel service
             scm_service_stop();
+            // if you call the scm service stop in the same SCM thread and then uncomment the below line, it will send the stop message to event viewer
             // stop_windows_service();
             return 0;
 
