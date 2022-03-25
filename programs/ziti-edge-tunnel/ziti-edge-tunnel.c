@@ -62,6 +62,10 @@ static void send_tunnel_command_inline(tunnel_command *tnl_cmd, void *ctx);
 
 #if _WIN32
 static void move_config_from_previous_windows_backup(uv_loop_t *loop);
+static void scm_service_stop_event(uv_loop_t *loop, void *arg);
+
+static uv_cond_t stop_cond;
+static uv_mutex_t stop_mutex;
 #endif
 
 struct cfg_instance_s {
@@ -103,6 +107,7 @@ static const ziti_tunnel_ctrl *CMD_CTRL;
 
 static bool started_by_scm = false;
 static bool tunnel_interrupted = false;
+static bool stopped_by_scm = false;
 
 uv_loop_t *main_ziti_loop;
 tunneler_context tunneler;
@@ -116,6 +121,11 @@ static char eventsockfile[] = "\\\\.\\pipe\\ziti-edge-tunnel-event.sock";
 static char sockfile[] = "/tmp/ziti-edge-tunnel.sock";
 static char eventsockfile[] = "/tmp/ziti-edge-tunnel-event.sock";
 #endif
+
+static void init_mutex() {
+    uv_cond_init(&stop_cond);
+    uv_mutex_init(&stop_mutex);
+}
 
 static int sizeof_event_clients_list() {
     struct event_conn_s *event_client;
@@ -494,7 +504,7 @@ static bool process_tunnel_commands(const tunnel_command *tnl_cmd, command_cb cb
             result.success = true;
             result.code = IPC_SUCCESS;
             if (tunnel_service_control_opts.operation != NULL && strcmp(tunnel_service_control_opts.operation, "stop") == 0) {
-                scm_service_stop();
+                ziti_tunnel_async_send(NULL, scm_service_stop_event, NULL);
             }
             free_tunnel_service_control(&tunnel_service_control_opts);
             break;
@@ -1485,6 +1495,8 @@ static int run_tunnel(uv_loop_t *ziti_loop, uint32_t tun_ip, uint32_t dns_ip, co
     start_cmd_socket(ziti_loop);
     start_event_socket(ziti_loop);
 
+    init_mutex();
+
     if (uv_run(ziti_loop, UV_RUN_DEFAULT) != 0) {
         if (started_by_scm) {
             ZITI_LOG(INFO, "The event loop is stopped, normal shutdown complete");
@@ -1498,6 +1510,13 @@ static int run_tunnel(uv_loop_t *ziti_loop, uint32_t tun_ip, uint32_t dns_ip, co
 
     free(tunneler);
 #if _WIN32
+    if (started_by_scm && !stopped_by_scm) {
+        uv_mutex_lock(&stop_mutex);
+        stopped_by_scm = true;
+        uv_cond_signal(&stop_cond);
+        uv_mutex_unlock(&stop_mutex);
+        ZITI_LOG(INFO, "Unlocking the SCM thread...");
+    }
     close_log();
 #endif
     return 0;
@@ -1596,7 +1615,7 @@ static int dns_fallback(const char *name, void *ctx, struct in_addr* addr) {
 static void interrupt_handler(int sig) {
     ZITI_LOG(WARN,"Received signal to interrupt");
     tunnel_interrupted = true;
-    scm_service_stop();
+    ziti_tunnel_async_send(NULL, scm_service_stop_event, NULL);
 }
 #endif
 
@@ -2689,8 +2708,8 @@ void scm_service_run(const char *name) {
     run(0, NULL);
 }
 
-void scm_service_stop() {
-    ZITI_LOG(INFO, "Control request to stop tunnel service received...");
+static void scm_service_stop_event(uv_loop_t *loop, void *arg) {
+    ZITI_LOG(INFO, "Processing the stop tunnel request...");
 
     // ziti dump to log file / stdout
     tunnel_command *tnl_cmd = calloc(1, sizeof(tunnel_command));
@@ -2709,15 +2728,24 @@ void scm_service_stop() {
     if (main_ziti_loop != NULL) {
 
         uv_stop(main_ziti_loop);
-        int result = uv_loop_close(main_ziti_loop);
-        if (result == UV_EBUSY)
-        {
-            ZITI_LOG(INFO, "loop is busy, exiting...");
-        }
-    }
+        uv_loop_close(main_ziti_loop);
 
-    // stops the windows service in scm
-    stop_windows_service();
+    }
+}
+
+// should be called by SCM thread only as it is going to block the called thread
+void scm_service_stop() {
+    ZITI_LOG(INFO, "Control request to stop tunnel service received...");
+
+    uv_mutex_lock(&stop_mutex);
+    ziti_tunnel_async_send(NULL, scm_service_stop_event, NULL);
+    while (started_by_scm && !stopped_by_scm) {
+        ZITI_LOG(INFO, "Locking the SCM thread until the tunnel service is stopped...");
+        uv_cond_wait(&stop_cond, &stop_mutex);
+    }
+    uv_mutex_unlock(&stop_mutex);
+
+    ZITI_LOG(INFO, "Unlocked the SCM thread...");
 
 }
 

@@ -30,6 +30,7 @@ SERVICE_STATUS          gSvcStatus;
 SERVICE_STATUS_HANDLE   gSvcStatusHandle;
 HANDLE                  ghSvcStopEvent = NULL;
 HANDLE                  ghSvcRunningEvent = NULL;
+HANDLE                  tunHandle = NULL;
 
 //LPCTSTR SVCNAME = "ziti";
 //
@@ -204,7 +205,7 @@ VOID SvcInit( DWORD dwArgc, LPTSTR *lpszArgv)
     }
 
     // start tunnel
-    CreateThread (NULL, 0, ServiceWorkerThread, lpszArgv[0], 0, NULL);
+    tunHandle = CreateThread (NULL, 0, ServiceWorkerThread, lpszArgv[0], 0, NULL);
 
     // Check whether the service is started
 
@@ -241,7 +242,7 @@ VOID SvcInit( DWORD dwArgc, LPTSTR *lpszArgv)
         }
     }
 
-    while(1)
+    /* while(1)
     {
         // Check whether to stop the service.
 
@@ -250,6 +251,13 @@ VOID SvcInit( DWORD dwArgc, LPTSTR *lpszArgv)
         SvcReportEvent(TEXT("Ziti Edge Tunnel Stopped"), EVENTLOG_INFORMATION_TYPE);
         ReportSvcStatus( SERVICE_STOPPED, NO_ERROR, 0 );
         return;
+    }*/
+    while (1) {
+        if (WaitForSingleObject(tunHandle, INFINITE) == WAIT_OBJECT_0) {
+            SvcReportEvent(TEXT("Ziti Edge Tunnel Stopped"), EVENTLOG_INFORMATION_TYPE);
+            ReportSvcStatus( SERVICE_STOPPED, NO_ERROR, 0 );
+            break;
+        }
     }
 }
 
@@ -423,7 +431,9 @@ void scm_running_event() {
 //   None
 //
 void stop_windows_service() {
-    SetEvent(ghSvcStopEvent);
+    if (ghSvcStopEvent != NULL) {
+        SetEvent(ghSvcStopEvent);
+    }
 }
 
 DWORD get_process_path(LPTSTR lpBuffer, DWORD  nBufferLength) {
@@ -454,7 +464,7 @@ DWORD LphandlerFunctionEx(
 
             // stops the running tunnel service
             scm_service_stop();
-
+            // stop_windows_service();
             return 0;
 
         case SERVICE_CONTROL_POWEREVENT:
