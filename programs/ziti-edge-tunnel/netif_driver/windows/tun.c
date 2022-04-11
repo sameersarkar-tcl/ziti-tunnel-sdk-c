@@ -31,7 +31,6 @@
 #include <wintun.h>
 #include <stdbool.h>
 #include <ziti/ziti_log.h>
-#include <netioapi.h>
 #include <iphlpapi.h>
 #include <stdlib.h>
 #include <combaseapi.h>
@@ -154,7 +153,7 @@ netif_driver tun_open(struct uv_loop_s *loop, uint32_t tun_ip, uint32_t dns_ip, 
         return NULL;
     }
     DWORD Version = WintunGetRunningDriverVersion();
-    ZITI_LOG(INFO, "Wintun v%u.%u loaded", (Version >> 16) & 0xff, (Version >> 0) & 0xff);
+    ZITI_LOG(INFO, "Wintun v%lu.%lu loaded", (Version >> 16) & 0xff, (Version >> 0) & 0xff);
 
     struct netif_handle_s *tun = calloc(1, sizeof(struct netif_handle_s));
     if (tun == NULL) {
@@ -268,7 +267,7 @@ static void tun_reader(void *h) {
 
     if (!readEv) {
         DWORD err = GetLastError();
-        ZITI_LOG(ERROR, "failed to get ReadWaitEvent from(%p) err=%d", readEv, tun->session, err);
+        ZITI_LOG(ERROR, "failed to get ReadWaitEvent from(%p) err=%ld", tun->session, err);
         return;
     }
 
@@ -276,7 +275,7 @@ static void tun_reader(void *h) {
         DWORD rc = WaitForSingleObject(readEv, INFINITE);
         if (rc != WAIT_OBJECT_0) {
             DWORD err = GetLastError();
-            ZITI_LOG(ERROR, "failed waiting for wintun read event(%p) from(%p) %d(err=%d)", readEv, tun->adapter, rc, err);
+            ZITI_LOG(ERROR, "failed waiting for wintun read event(%p) from(%p) %ld(err=%ld)", readEv, tun->adapter, rc, err);
             break;
         }
 
@@ -300,7 +299,7 @@ static void tun_read(uv_async_t *ar) {
                 // done reading
                 SetEvent(tun->read_complete);
             } else {
-                ZITI_LOG(ERROR, "failed to receive packet: %d", error);
+                ZITI_LOG(ERROR, "failed to receive packet: %ld", error);
             }
             break;
         }
@@ -345,7 +344,7 @@ static int parse_route(PIP_ADDRESS_PREFIX pfx, const char *route) {
     return 0;
 }
 
-typedef NTSTATUS(__stdcall *route_f)(const MIB_IPFORWARD_ROW2*);
+typedef DWORD(__stdcall *route_f)(const MIB_IPFORWARD_ROW2*);
 
 static DWORD tun_do_route(netif_handle tun, const char *dest, route_f rt_f) {
     MIB_IPFORWARD_ROW2 rt;
@@ -362,7 +361,7 @@ int tun_add_route(netif_handle tun, const char *dest) {
     DWORD rc = tun_do_route(tun, dest, CreateIpForwardEntry2);
     if (rc != 0 && rc != ERROR_OBJECT_ALREADY_EXISTS) {
         DWORD err = GetLastError();
-        ZITI_LOG(WARN, "failed to add route %d err=%d", rc, err);
+        ZITI_LOG(WARN, "failed to add route %ld err=%ld", rc, err);
     }
     return 0;
 }
@@ -372,7 +371,7 @@ int tun_del_route(netif_handle tun, const char *dest) {
     DWORD rc = tun_do_route(tun, dest, DeleteIpForwardEntry2);
     if (rc != 0) {
         DWORD err = GetLastError();
-        ZITI_LOG(WARN, "failed to delete route %d err=%d", rc, err);
+        ZITI_LOG(WARN, "failed to delete route %ld err=%ld", rc, err);
     }
     return 0;
 }
@@ -421,7 +420,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
         ZITI_LOG(ERROR, "unable to find loopback device: GetIpInterfaceTable returned error %ld", status);
         return 1;
     }
-    loopback_luid = ip_table->Table[0].InterfaceLuid;
+    loopback_luid = tun->luid; //ip_table->Table[0].InterfaceLuid;
     FreeMibTable(ip_table);
     ip_table = NULL;
 
@@ -457,7 +456,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     struct addr_add_ctx_s *ctx = calloc(1, sizeof(struct addr_add_ctx_s));
     ctx->complete_event = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (ctx->complete_event == NULL) {
-        ZITI_LOG(ERROR, "CreateEvent failed: %s", GetLastError());
+        ZITI_LOG(ERROR, "CreateEvent failed: %ld", GetLastError());
         free(ctx);
         return 1;
     }
@@ -466,9 +465,9 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     NotifyUnicastIpAddressChange(AF_INET, &on_address_change, ctx, FALSE, &ctx->notify_event);
 
     status = CreateUnicastIpAddressEntry(addr_row);
-    ZITI_LOG(INFO, "CreateUnicastIpAddress e=%d", status);
+    ZITI_LOG(INFO, "CreateUnicastIpAddress e=%ld", status);
     if (status != NO_ERROR && status != ERROR_OBJECT_ALREADY_EXISTS) {
-        ZITI_LOG(ERROR, "failed to create local address %s: %d", addr, status);
+        ZITI_LOG(ERROR, "failed to create local address %s: %ld", addr, status);
         CancelMibChangeNotify2(ctx->notify_event);
         free(ctx);
         return 1;
@@ -477,7 +476,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     // wait for address to be added.
     ZITI_LOG(DEBUG, "waiting for ip add to complete");
     status = WaitForSingleObject(ctx->complete_event, 3000);
-    ZITI_LOG(DEBUG, "wait status=%d", status);
+    ZITI_LOG(DEBUG, "wait status=%ld", status);
     CancelMibChangeNotify2(ctx->notify_event);
     CloseHandle(ctx->complete_event);
     free(ctx);
@@ -485,7 +484,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
     if (status == WAIT_OBJECT_0) {
         ZITI_LOG(DEBUG, "successfully added %s to loopback interface", addr);
     } else {
-        ZITI_LOG(ERROR, "wait for address %s failed: %d", addr, status);
+        ZITI_LOG(ERROR, "wait for address %s failed: %ld", addr, status);
         return 1;
     }
 

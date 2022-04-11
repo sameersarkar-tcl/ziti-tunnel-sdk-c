@@ -138,6 +138,26 @@ static struct rawsock_forwarder *create_rawsock_forwarder(tunneler_context tnlr,
             .sin_addr.s_addr = ip_addr_get_ip4_u32(&local_addr->ip),
             .sin_port = 0,
     };
+#if 1
+    // on 0.15 bind fails with EADDRNOTAVAIL unless a very log delay is added here.
+     // the netsh output shows that the address is in fact assigned to the interface
+     // when the bind fails (this is not surprising, since we waited for the ip notification
+     //uv_sleep(5000);
+     FILE *p = _popen("netsh interface ipv4 show ipaddresses", "rt");
+     if (p != NULL) {
+         char b[512];
+         while (fgets(b, sizeof(b), p) != NULL) {
+             TNL_LOG(INFO, "netsh output: '%s'", b);
+         }
+         if (feof(p)) {
+             TNL_LOG(INFO, "netsh exited %d", _pclose(p));
+         } else {
+             TNL_LOG(ERR, "netsh failed");
+         }
+     } else {
+         TNL_LOG(ERR, "popen failed");
+     }
+#endif
     int e = bind(sock, (struct sockaddr *) &ip, sizeof(ip));
     if (e == -1) {
         TNL_LOG(ERR, "failed to bind raw %s socket to %e: err=%d", proto, local_addr->str, SOCKET_ERRNO);
