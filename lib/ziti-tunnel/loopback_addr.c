@@ -6,7 +6,7 @@
 #include "ziti/ziti_model.h"
 #ifdef _WIN32
 #include <windows.h>
-#include <netioapi.h>
+#include <iphlpapi.h>
 #include "uv.h"
 
 struct addr_add_ctx_s {
@@ -34,7 +34,7 @@ static void CALLBACK on_address_change(PVOID callerContext, PMIB_UNICASTIPADDRES
         // check that address matches the one that was added
         if (row->Address.si_family == AF_INET &&
             row->Address.Ipv4.sin_addr.S_un.S_addr == ctx->addr.Ipv4.sin_addr.S_un.S_addr) {
-            TNL_LOG(DEBUG, "added address matches");
+            TNL_LOG(INFO, "added address matches %s", inet_ntoa(ctx->addr.Ipv4.sin_addr));
             SetEvent(ctx->complete_event);
         }
         if (row->Address.si_family == AF_INET6) {
@@ -43,21 +43,26 @@ static void CALLBACK on_address_change(PVOID callerContext, PMIB_UNICASTIPADDRES
     }
 }
 
+#define USE_LOOPBACK_LUID
 static void refresh_local_addresses(uv_timer_t *timer);
 static uv_timer_t local_address_timer;
 static model_map local_addresses;
+NET_LUID tun_luid;
 
 void loopback_init(void) {
-    PMIB_IF_TABLE2 if_table;
-    NETIO_STATUS e = GetIfTable2(&if_table);
-    if (e != NO_ERROR) {
-        TNL_LOG(ERR, "GetIfTable2 failed: %d", e);
+//    uv_sleep(20000);
+    NETIO_STATUS s = ConvertInterfaceAliasToLuid(L"ZitiTUN", &tun_luid);
+    if (!NETIO_SUCCESS(s)) {
+        TNL_LOG(ERR, "ConvertInterfaceAliasToLuid('ZitiTUN') failed: %d", s);
         return;
     }
-    for (int i = 0; i < if_table->NumEntries; i++) {
-        char alias_str[16];
-        TNL_LOG(INFO, "if %s id %d", wcstombs(alias_str, if_table->Table->Alias, sizeof(alias_str)));
+    NET_IFINDEX tun_idx;
+    s = ConvertInterfaceLuidToIndex(&tun_luid, &tun_idx);
+    if (!NETIO_SUCCESS(s)) {
+        TNL_LOG(ERR, "ConvertInterfaceLuiToIndex failed: %d", s);
+        return;
     }
+    TNL_LOG(INFO, "using luid %ld, idx %ld", tun_luid.Value, tun_idx);
     uv_timer_init(uv_default_loop(), &local_address_timer);
     memset(&local_addresses, 0, sizeof(local_addresses));
     uv_unref((uv_handle_t *) &local_address_timer);
@@ -68,9 +73,11 @@ void loopback_init(void) {
 int loopback_add_address(const char *addr) {
     PMIB_IPINTERFACE_TABLE ip_table = NULL;
     PMIB_UNICASTIPADDRESS_ROW addr_row = NULL;
+    unsigned long status;
+#ifdef USE_LOOPBACK_LUID
     NET_LUID loopback_luid;
 
-    unsigned long status = GetIpInterfaceTable( AF_INET, &ip_table );
+    status = GetIpInterfaceTable( AF_INET, &ip_table );
     if (status != NO_ERROR) {
         TNL_LOG(ERR, "unable to find loopback device: GetIpInterfaceTable returned error %ld", status);
         return 1;
@@ -78,7 +85,7 @@ int loopback_add_address(const char *addr) {
     loopback_luid = ip_table->Table[0].InterfaceLuid;
     FreeMibTable(ip_table);
     ip_table = NULL;
-
+#endif
     address_t *a = parse_address(addr, NULL);
     if (a == NULL) {
         TNL_LOG(ERR, "failed to parse address %s", addr);
@@ -87,7 +94,12 @@ int loopback_add_address(const char *addr) {
 
     addr_row = calloc(1, sizeof(MIB_UNICASTIPADDRESS_ROW));
     InitializeUnicastIpAddressEntry(addr_row);
+#ifdef USE_LOOPBACK_LUID
     addr_row->InterfaceLuid = loopback_luid;
+#else
+    addr_row->InterfaceLuid = tun_luid;
+#endif
+
     addr_row->ValidLifetime = LOCAL_ADDRESS_LIFETIME;
     addr_row->PreferredLifetime = LOCAL_ADDRESS_LIFETIME;
 
@@ -166,7 +178,7 @@ int loopback_delete_address(const char *addr) {
 }
 
 void refresh_local_addresses(uv_timer_t *timer) {
-    TNL_LOG(INFO, "refreshing local addresses");
+    TNL_LOG(DEBUG, "refreshing local addresses");
     const char *addr;
     MIB_UNICASTIPADDRESS_ROW *addr_row;
     MODEL_MAP_FOREACH(addr, addr_row, &local_addresses) {

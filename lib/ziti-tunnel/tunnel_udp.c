@@ -140,7 +140,7 @@ u8_t recv_udp(void *tnlr_ctx_arg, struct raw_pcb *pcb, struct pbuf *p, const ip_
     char src_str[IPADDR_STRLEN_MAX];
     ipaddr_ntoa_r(&src, src_str, sizeof(src_str));
 
-    TNL_LOG(TRACE, "received datagram %s:%d->%s:%d",
+    TNL_LOG(INFO, "received datagram %s:%d->%s:%d",
             src_str, src_p, ipaddr_ntoa(&dst), dst_p);
 
     /* first see if this datagram belongs to an active connection */

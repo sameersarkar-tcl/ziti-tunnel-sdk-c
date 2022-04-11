@@ -128,6 +128,7 @@ static void forward_packet(uv_poll_t* watcher, int status, int revents) {
             return;
         }
         // todo fix packet checksum
+        TNL_LOG(INFO, "calling on_packet");
         on_packet(buf, n, &fwd->tnlr->netif);
     }
 }
@@ -145,9 +146,29 @@ static struct rawsock_forwarder *create_rawsock_forwarder(tunneler_context tnlr,
             .sin_addr.s_addr = ip_addr_get_ip4_u32(&local_addr->ip),
             .sin_port = 0,
     };
+#if 0
+    // on 0.15 bind fails with EADDRNOTAVAIL unless a very log delay is added here.
+    // the netsh output shows that the address is in fact assigned to the interface
+    // when the bind fails (this is not surprising, since we waited for the ip notification
+    //uv_sleep(5000);
+    FILE *p = _popen("netsh interface ipv4 show ipaddresses", "rt");
+    if (p != NULL) {
+        char b[512];
+        while (fgets(b, sizeof(b), p) != NULL) {
+            TNL_LOG(INFO, "netsh output: '%s'", b);
+        }
+        if (feof(p)) {
+            TNL_LOG(INFO, "netsh exited %d", _pclose(p));
+        } else {
+            TNL_LOG(ERR, "netsh failed");
+        }
+    } else {
+        TNL_LOG(ERR, "popen failed");
+    }
+#endif
     int e = bind(sock, (struct sockaddr *) &ip, sizeof(ip));
     if (e == -1) {
-        TNL_LOG(ERR, "failed to bind raw %s socket to %e: err=%d", proto, local_addr->str, SOCKET_ERRNO);
+        TNL_LOG(ERR, "failed to bind raw %s socket to %s: err=%d", proto, local_addr->str, SOCKET_ERRNO);
         close_socket(sock);
         return NULL;
     }
@@ -223,7 +244,7 @@ int ziti_tunneler_add_local_address(tunneler_context tnlr_ctx, const char *addr)
     LIST_FOREACH(entry, &tnlr_ctx->client_ips, _next) {
         TNL_LOG(DEBUG, "comparing %s %s", addr, entry->ip);
         if (strcmp(addr, entry->ip) == 0) {
-            TNL_LOG(DEBUG, "incrementing reference count for local address %s", addr);
+            TNL_LOG(INFO, "incrementing reference count for local address %s", addr);
             entry->count++;
             return 0;
         }
@@ -253,7 +274,7 @@ int ziti_tunneler_delete_local_address(tunneler_context tnlr_ctx, const char *ad
     LIST_FOREACH(entry, &tnlr_ctx->client_ips, _next) {
         TNL_LOG(DEBUG, "comparing %s %s", addr, entry->ip);
         if (strcmp(addr, entry->ip) == 0) {
-            TNL_LOG(DEBUG, "deccrementing reference count for local address %s", addr);
+            TNL_LOG(INFO, "decrementing reference count for local address %s", addr);
             entry->count--;
             break;
         }
