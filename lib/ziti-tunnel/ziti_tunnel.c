@@ -138,7 +138,7 @@ static struct rawsock_forwarder *create_rawsock_forwarder(tunneler_context tnlr,
             .sin_addr.s_addr = ip_addr_get_ip4_u32(&local_addr->ip),
             .sin_port = 0,
     };
-#if 1
+#ifdef _WIN32
     // on 0.15 bind fails with EADDRNOTAVAIL unless a very log delay is added here.
      // the netsh output shows that the address is in fact assigned to the interface
      // when the bind fails (this is not surprising, since we waited for the ip notification

@@ -31,7 +31,7 @@
 #include <wintun.h>
 #include <stdbool.h>
 #include <ziti/ziti_log.h>
-#include <iphlpapi.h>
+#include <netioapi.h>
 #include <stdlib.h>
 #include <combaseapi.h>
 #include <ziti/model_support.h>
