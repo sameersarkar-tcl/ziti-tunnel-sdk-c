@@ -420,7 +420,7 @@ int loopback_add_address(netif_handle tun, const char *addr) {
         ZITI_LOG(ERROR, "unable to find loopback device: GetIpInterfaceTable returned error %ld", status);
         return 1;
     }
-    loopback_luid = tun->luid; //ip_table->Table[0].InterfaceLuid;
+    loopback_luid = ip_table->Table[0].InterfaceLuid;
     FreeMibTable(ip_table);
     ip_table = NULL;
 
