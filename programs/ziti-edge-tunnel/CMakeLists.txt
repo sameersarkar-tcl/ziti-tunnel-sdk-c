@@ -4,7 +4,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
     set(NETIF_DRIVER_SOURCE netif_driver/darwin/utun.c)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
-    set(NETIF_DRIVER_SOURCE netif_driver/linux/tun.c)
+    set(NETIF_DRIVER_SOURCE netif_driver/linux/tun.c netif_driver/linux/resolvers.c netif_driver/linux/utils.c)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL Windows)
@@ -25,13 +25,33 @@ if (MSVC)
     set(getopt libwinc)
 endif()
 
-set(ZITI_INSTANCE_COMMON include/model/events.h include/model/dtos.h instance.c include/instance.h log_utils.c utils.c include/file-rotator.h)
+set(ZITI_INSTANCE_COMMON include/model/events.h include/model/dtos.h instance.c include/instance.h config-utils.c include/config-utils.h instance-config.c include/instance-config.h)
 if (WIN32)
-    set(ZITI_INSTANCE_OS windows-service.c include/windows/windows-service.h)
+    set(ZITI_INSTANCE_OS windows-service.c include/windows/windows-service.h include/windows/windows-scripts.h windows-scripts.c log_utils.c include/log-utils.h include/service-utils.h)
 endif ()
 
 add_executable(ziti-edge-tunnel ziti-edge-tunnel.c ${NETIF_DRIVER_SOURCE} ${ZITI_INSTANCE_COMMON} ${ZITI_INSTANCE_OS})
 set_property(TARGET ziti-edge-tunnel PROPERTY C_STANDARD 11)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    option(DISABLE_LIBSYSTEMD_FEATURE "libsystemd library integration toggle" OFF)
+    message("DISABLE_LIBSYSTEMD_FEATURE: ${DISABLE_LIBSYSTEMD_FEATURE}")
+
+    if (DISABLE_LIBSYSTEMD_FEATURE)
+        target_compile_definitions(ziti-edge-tunnel PRIVATE EXCLUDE_LIBSYSTEMD_RESOLVER)
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(LIBSYSTEMD IMPORTED_TARGET "libsystemd")
+
+        if(LIBSYSTEMD_FOUND)
+            if(LIBSYSTEMD_VERSION VERSION_LESS "229")
+                message(FATAL_ERROR "Unsupported version of libsystemd detected. To disable libsystmd feature, set DISABLE_LIBSYSTEMD_FEATURE=ON.")
+            endif()
+        else()
+            message(FATAL_ERROR "libsystemd not found. To disable libsytemd feature, set DISABLE_LIBSYSTEMD_FEATURE=ON")
+        endif()
+    endif()
+endif()
 
 target_include_directories(ziti-edge-tunnel
         PRIVATE include
@@ -53,4 +73,11 @@ BUNDLE_COMP(ziti-edge-tunnel)
 
 install(TARGETS ziti-edge-tunnel
         DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT ${PROJECT_NAME}
         )
+
+if(CMAKE_SYSTEM_NAME STREQUAL Linux AND BUILD_DIST_PACKAGES)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/package/CPackPackage.cmake")
+        include(CPack)
+        unset(BUILD_DIST_PACKAGES CACHE)
+endif()

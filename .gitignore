@@ -1,6 +1,8 @@
 .DS_Store
 
 /.idea/
+.vs
+gcc
 
 build-*/
 build/
@@ -9,3 +11,8 @@ install/
 
 .vscode/
 Pipfile
+
+/_deps/
+.cache/
+/tags*
+compile_commands.json
