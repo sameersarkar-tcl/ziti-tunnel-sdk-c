@@ -212,7 +212,6 @@ intercept_ctx_t* intercept_ctx_new(tunneler_context tnlr_ctx, const char *app_id
     ictx->service_name = strdup(app_id);
     ictx->app_intercept_ctx = app_intercept_ctx;
     STAILQ_INIT(&ictx->protocols);
-    STAILQ_INIT(&ictx->addresses);
     STAILQ_INIT(&ictx->port_ranges);
 
     return ictx;
@@ -265,7 +264,6 @@ address_t *parse_address(const char *ip_or_cidr) {
 }
 
 address_t *intercept_ctx_add_address(intercept_ctx_t *i_ctx, const char *address) {
-    address_t *addr = parse_address(address);
 
     if (addr == NULL) {
         TNL_LOG(ERR, "failed to parse address '%s' service[%s]", address, i_ctx->service_name);

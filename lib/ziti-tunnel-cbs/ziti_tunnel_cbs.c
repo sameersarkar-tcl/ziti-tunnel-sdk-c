@@ -425,14 +425,15 @@ ziti_intercept_t *new_ziti_intercept(ziti_context ztx, ziti_service *service, zi
 
 // only do matching on based on wildcard domain here
 static bool intercept_match_addr(ip_addr_t *addr, void *ctx) {
-    ZITI_LOG(INFO, "matching %s", ipaddr_ntoa(addr));
+    ZITI_LOG(DEBUG, "matching %s", ipaddr_ntoa(addr));
     ziti_intercept_t *zi_ctx = ctx;
     if (zi_ctx->cfg_desc->cfgtype == INTERCEPT_CFG_V1) {
         ziti_intercept_cfg_v1 *cfg = &zi_ctx->cfg.intercept_v1;
         const char *domain = ziti_dns_reverse_lookup_domain(addr);
         if (domain) {
             for (int i = 0; cfg->addresses[i] != NULL; i++) {
-                if (strcasecmp(domain, cfg->addresses[i]) == 0) {
+                if (cfg->addresses[i]->type != ziti_address_hostname) continue;
+                if (ziti_address_match_s(domain, cfg->addresses[i])) {
                     return true;
                 }
             }

@@ -18,6 +18,7 @@
 #include <stdio.h>
 
 #include "ziti_tunnel_priv.h"
+#include "ziti/ziti_model.h"
 
 bool protocol_match(const char *protocol, const protocol_list_t *protocols) {
     protocol_t *p;
@@ -67,11 +68,11 @@ intercept_ctx_t *lookup_intercept_by_address(tunneler_context tnlr_ctx, const ch
     LIST_FOREACH(intercept, &tnlr_ctx->intercepts, entries) {
         if (!protocol_match(protocol, &intercept->protocols)) continue;
         if (!port_match(dst_port, &intercept->port_ranges)) continue;
-
+// todo why call match_addr here? lookup_intercept_by_address is always called with IP.
         if (intercept->match_addr && intercept->match_addr(dst_addr, intercept->app_intercept_ctx))
             return intercept;
 
-        if (address_match(dst_addr, &intercept->addresses))
+        if (ziti_address_match_array(dst_addr, intercept->addresses))
             return intercept;
     }
 
@@ -79,11 +80,7 @@ intercept_ctx_t *lookup_intercept_by_address(tunneler_context tnlr_ctx, const ch
 }
 
 void free_intercept(intercept_ctx_t *intercept) {
-    while(!STAILQ_EMPTY(&intercept->addresses)) {
-        address_t *a = STAILQ_FIRST(&intercept->addresses);
-        STAILQ_REMOVE_HEAD(&intercept->addresses, entries);
-        free(a);
-    }
+    free_ziti_address_array(&intercept->addresses);
     while(!STAILQ_EMPTY(&intercept->protocols)) {
         protocol_t *p = STAILQ_FIRST(&intercept->protocols);
         STAILQ_REMOVE_HEAD(&intercept->protocols, entries);
