@@ -27,43 +27,14 @@ services:
     ziti-test:               # docker-compose exec ziti-test bash
         <<: *base-service
         entrypoint: ["sh", "-c", "while true; do sleep infinity; done"]
-    ziti-tun-dnsmasq:        # tunneler with dnsmasq instead of built-in nameserver
-        <<: *base-service
+    ziti-host:                # tunneler for hosting services without providing DNS or IP routes
+        image: netfoundry/ziti-edge-tunnel:latest
         volumes:
         - .:/ziti-edge-tunnel
-#        - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
-        - ziti-addn-hosts:/etc/dnsmasq/addn-hosts
+        environment:
+        - NF_REG_NAME            # inherit when run like this: NF_REG_NAME=AcmeIdentity docker-compose up ziti-tun
+        network_mode: bridge     # use the Compose project's Docker bridge network
+        privileged: false        # will fail to provide DNS and IP routes if not privileged
         command: 
         - --verbose=4
         - --dns-ip-range=100.64.64.0/18
-        - --dns=dnsmasq:/etc/dnsmasq/addn-hosts
-    ziti-dnsmasq:            # dnsmasq server for Ziti
-        image: strm/dnsmasq
-        volumes:
-        - ziti-addn-hosts:/etc/dnsmasq/addn-hosts
-        networks:
-            ziti-dnsmasq:
-                ipv4_address: 100.64.128.53
-        environment:
-            DNSMASQ_CONF: |
-                listen-address=100.64.128.53
-                bind-interfaces
-                addn-hosts=/etc/dnsmasq/addn-hosts
-                log-queries
-        entrypoint: []  # override strm/dnsmasq running dnsmasq as entrypoint
-        command: sh -c 'echo "$${DNSMASQ_CONF}" > /etc/dnsmasq.conf; dnsmasq --no-daemon'
-    ziti-test-dnsmasq:       # a test client using dnsmasq for DNS
-        image: busybox
-        dns:
-        - 100.64.128.53
-        networks:
-            ziti-dnsmasq:
-        command: sh -c 'while true; do wget -O - echo-router.junction1765.netfoundry; sleep 1; done'
-volumes:
-    ziti-addn-hosts:
-networks:
-    ziti-dnsmasq:
-        driver: bridge
-        ipam:
-            config:
-            - subnet: 100.64.128.0/24
